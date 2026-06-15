@@ -1,0 +1,22 @@
+[package]
+name = "geyser"
+description = "Yellowstone gRPC subscriber that maintains a lock-free view of Solana chain state."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[dependencies]
+tokio = { workspace = true }
+tokio-util = { workspace = true }
+futures = { workspace = true }
+yellowstone-grpc-client = { workspace = true }
+yellowstone-grpc-proto = { workspace = true }
+tonic = { workspace = true }
+solana-hash = { workspace = true }
+arc-swap = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }

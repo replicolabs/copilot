@@ -1,0 +1,16 @@
+/target
+**/*.rs.bk
+.env
+.env.local
+.env.*.local
+*.pem
+keypair.json
+id.json
+*-keypair.json
+payer*.json
+.DS_Store
+*.swp
+.idea/
+.vscode/
+.vercel
+node_modules/

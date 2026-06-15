@@ -1,0 +1,20 @@
+[package]
+name = "tip-oracle"
+description = "Dynamic Jito tip pricing from live tip-floor and prioritization-fee data."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[dependencies]
+tokio = { workspace = true }
+reqwest = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+solana-rpc-client = { workspace = true }
+solana-rpc-client-api = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }

@@ -1,0 +1,31 @@
+[package]
+name = "bundle"
+description = "Jito bundle construction, submission, and status, tip and blockhash supplied by the caller."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[dependencies]
+tokio = { workspace = true }
+jito-sdk-rust = { workspace = true }
+serde_json = { workspace = true }
+base64 = { workspace = true }
+bincode = { workspace = true }
+rand = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+anyhow = { workspace = true }
+
+solana-pubkey = { workspace = true }
+solana-hash = { workspace = true }
+solana-keypair = { workspace = true }
+solana-signer = { workspace = true }
+solana-instruction = { workspace = true }
+solana-message = { workspace = true }
+solana-transaction = { workspace = true }
+solana-system-interface = { workspace = true }
+solana-compute-budget-interface = { workspace = true }

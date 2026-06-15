@@ -1,0 +1,18 @@
+name: skills
+
+on:
+  push:
+    branches: [main]
+    paths: ["skills/**", ".github/workflows/skills.yml", ".github/scripts/validate_skills.py"]
+  pull_request:
+    branches: [main]
+    paths: ["skills/**", ".github/workflows/skills.yml", ".github/scripts/validate_skills.py"]
+
+jobs:
+  validate:
+    name: validate skill structure and links
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate frontmatter, reference listing, links, and router wiring
+        run: python3 .github/scripts/validate_skills.py

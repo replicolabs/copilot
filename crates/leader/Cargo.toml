@@ -1,0 +1,21 @@
+[package]
+name = "leader"
+description = "Solana leader-schedule tracking and submission-window detection."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[dependencies]
+geyser = { workspace = true }
+tokio = { workspace = true }
+tokio-util = { workspace = true }
+arc-swap = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+solana-pubkey = { workspace = true }
+solana-rpc-client = { workspace = true }
+solana-rpc-client-api = { workspace = true }
