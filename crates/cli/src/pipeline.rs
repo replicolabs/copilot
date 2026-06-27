@@ -6,6 +6,7 @@ use serde_json::{Value, json};
 use solana_hash::Hash;
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
+use solana_rpc_client::nonblocking::rpc_client::RpcClient;
 use tokio::task::JoinHandle;
 use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
@@ -38,6 +39,7 @@ pub struct Stack {
     submitter: BundleSubmitter,
     leader: Arc<LeaderTracker>,
     config: Config,
+    rpc: Arc<RpcClient>,
     cancel: CancellationToken,
     geyser_handle: JoinHandle<Result<(), geyser::Error>>,
     leader_handle: JoinHandle<Result<(), leader::Error>>,
@@ -61,8 +63,8 @@ impl Stack {
         );
         let leader = LeaderTracker::new(rpc.clone(), state.clone());
         let leader_handle = tokio::spawn(leader.clone().run(cancel.clone()));
-        let oracle = TipOracle::new(rpc);
-        let submitter = BundleSubmitter::new(&config.block_engine);
+        let oracle = TipOracle::new(rpc.clone());
+        let submitter = BundleSubmitter::new(&config.block_engine, config.jito_uuid.clone());
 
         Self {
             state,
@@ -70,6 +72,7 @@ impl Stack {
             submitter,
             leader,
             config,
+            rpc,
             cancel,
             geyser_handle,
             leader_handle,
@@ -98,20 +101,27 @@ impl Stack {
     }
 
     pub async fn await_blockhash(&self) -> Result<Arc<BlockhashInfo>> {
-        let deadline = Instant::now() + Duration::from_secs(30);
+        let geyser_deadline = Instant::now() + Duration::from_secs(5);
         let mut tip = self.state.subscribe_slot_tip();
         loop {
             if let Some(blockhash) = self.state.latest_blockhash() {
                 return Ok(blockhash);
             }
-            if Instant::now() >= deadline {
-                return Err(anyhow!(
-                    "timed out waiting for the first blockhash from the geyser feed; \
-                     check COPILOT_GRPC_URL / token"
-                ));
+            if Instant::now() >= geyser_deadline {
+                break;
             }
-            let _ = tokio::time::timeout(Duration::from_secs(2), tip.changed()).await;
+            let _ = tokio::time::timeout(Duration::from_secs(1), tip.changed()).await;
         }
+
+        // if geyser did not deliver a BlockMeta event in time we fall back to RPC
+        info!("blockhash not yet from geyser; fetching from RPC");
+        let blockhash = self
+            .rpc
+            .get_latest_blockhash()
+            .await
+            .context("fetching latest blockhash from RPC")?;
+        let slot = self.state.processed_slot();
+        Ok(Arc::new(BlockhashInfo { blockhash, slot }))
     }
 
     pub async fn log_leader_window(&self) {
@@ -186,6 +196,10 @@ impl Stack {
             .ok_or_else(|| anyhow!("signed transaction carries no signature"))?;
         let submitted_slot = self.state.processed_slot();
 
+        info!(%blockhash, prio_price, "transaction built");
+
+        self.state.set_tracked_signature(Some(signature.clone()));
+
         let bundle_id = self
             .submitter
             .submit(&[transaction])
@@ -196,10 +210,8 @@ impl Stack {
         let entry =
             LifecycleEntry::submitted(signature, tip_lamports, submitted_slot, Some(bundle_id));
 
-        let mut tracker_config = TrackerConfig::new(
-            self.config.grpc_url.clone(),
-            self.config.grpc_x_token.clone(),
-        );
+        let mut tracker_config =
+            TrackerConfig::new().with_rpc_fallback(self.config.rpc_url.clone());
         tracker_config.landing_deadline = landing_deadline;
         let tracker = SignatureTracker::new(tracker_config, self.state.clone());
 

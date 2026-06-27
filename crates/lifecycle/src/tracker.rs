@@ -1,43 +1,40 @@
-use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
-use futures::{SinkExt, StreamExt};
 use geyser::ChainState;
-use tokio::time::MissedTickBehavior;
 use tokio_util::sync::CancellationToken;
-use tonic::transport::ClientTlsConfig;
-use tracing::{debug, info};
-use yellowstone_grpc_client::{Backoff, GeyserGrpcClient, ReconnectConfig};
-use yellowstone_grpc_proto::prelude::{
-    CommitmentLevel, SubscribeRequest, SubscribeRequestFilterTransactions, SubscribeRequestPing,
-    subscribe_update::UpdateOneof,
-};
+use tracing::{debug, info, warn};
 
 use crate::{Error, entry::LifecycleEntry};
 
-const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
-const REQUEST_TIMEOUT: Duration = Duration::from_secs(60);
-const KEEPALIVE_INTERVAL: Duration = Duration::from_secs(15);
 pub const DEFAULT_LANDING_DEADLINE: Duration = Duration::from_secs(90);
 pub const DEFAULT_FINALIZE_DEADLINE: Duration = Duration::from_secs(45);
 
 #[derive(Debug, Clone)]
 pub struct TrackerConfig {
-    pub endpoint: String,
-    pub x_token: Option<String>,
     pub landing_deadline: Duration,
     pub finalize_deadline: Duration,
+    pub rpc_url: Option<String>,
+}
+
+impl Default for TrackerConfig {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl TrackerConfig {
-    pub fn new(endpoint: impl Into<String>, x_token: Option<String>) -> Self {
+    pub fn new() -> Self {
         Self {
-            endpoint: endpoint.into(),
-            x_token,
             landing_deadline: DEFAULT_LANDING_DEADLINE,
             finalize_deadline: DEFAULT_FINALIZE_DEADLINE,
+            rpc_url: None,
         }
+    }
+
+    pub fn with_rpc_fallback(mut self, url: String) -> Self {
+        self.rpc_url = Some(url);
+        self
     }
 }
 
@@ -56,7 +53,7 @@ impl SignatureTracker {
         mut entry: LifecycleEntry,
         cancel: CancellationToken,
     ) -> Result<LifecycleEntry, Error> {
-        let landed_slot = match self.await_landing(&mut entry, &cancel).await? {
+        let landed_slot = match self.await_landing(&mut entry, &cancel).await {
             Some(slot) => slot,
             None => return Ok(entry),
         };
@@ -69,47 +66,78 @@ impl SignatureTracker {
         &self,
         entry: &mut LifecycleEntry,
         cancel: &CancellationToken,
-    ) -> Result<Option<u64>, Error> {
-        let mut client = self.connect().await?;
-        let (mut sink, mut stream) = client
-            .subscribe_with_request(Some(self.landing_request(&entry.signature)))
-            .await?;
+    ) -> Option<u64> {
+        self.state
+            .set_tracked_signature(Some(entry.signature.clone()));
+        let mut landing = self.state.subscribe_landing();
+
         info!(signature = %entry.signature, "tracking submission for landing");
 
         let deadline = tokio::time::sleep(self.config.landing_deadline);
         tokio::pin!(deadline);
-        let mut keepalive = tokio::time::interval(KEEPALIVE_INTERVAL);
-        keepalive.set_missed_tick_behavior(MissedTickBehavior::Skip);
 
-        loop {
-            tokio::select! {
-                _ = cancel.cancelled() => return Ok(None),
-                _ = &mut deadline => {
-                    debug!(signature = %entry.signature, "landing deadline elapsed; never observed");
-                    return Ok(None);
-                }
-                _ = keepalive.tick() => {
-                    let ping = SubscribeRequest {
-                        ping: Some(SubscribeRequestPing { id: 1 }),
-                        ..Default::default()
-                    };
-                    if let Err(err) = sink.send(ping).await {
-                        debug!(%err, "tracker keepalive ping failed");
-                    }
-                }
-                message = stream.next() => match message {
-                    Some(Ok(update)) => {
-                        if let Some(UpdateOneof::Transaction(tx)) = update.update_oneof {
-                            entry.record_processed(tx.slot);
-                            info!(signature = %entry.signature, slot = tx.slot, "transaction landed");
-                            return Ok(Some(tx.slot));
-                        }
-                    }
-                    Some(Err(status)) => return Err(Error::Stream(status)),
-                    None => return Err(Error::Closed),
-                },
+        let slot = tokio::select! {
+            _ = cancel.cancelled() => None,
+            _ = &mut deadline => {
+                debug!(signature = %entry.signature, "landing deadline elapsed; never observed");
+                self.rpc_fallback(&entry.signature).await
             }
+            result = landing.recv() => match result {
+                Ok(slot) => {
+                    entry.record_processed(slot);
+                    info!(signature = %entry.signature, slot, "transaction landed");
+                    Some(slot)
+                }
+                Err(_) => None,
+            },
+        };
+
+        self.state.set_tracked_signature(None);
+        if let Some(slot) = slot
+            && entry.processed_at.is_none()
+        {
+            entry.record_processed(slot);
+            info!(signature = %entry.signature, slot, "transaction landed (rpc fallback)");
         }
+        slot
+    }
+
+    async fn rpc_fallback(&self, signature: &str) -> Option<u64> {
+        let url = self.config.rpc_url.as_deref()?;
+
+        let body = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "getSignatureStatuses",
+            "params": [[signature], {"searchTransactionHistory": true}]
+        });
+
+        let resp = match reqwest::Client::new().post(url).json(&body).send().await {
+            Ok(r) => r,
+            Err(e) => {
+                warn!(%e, "rpc fallback: request failed");
+                return None;
+            }
+        };
+        let result: serde_json::Value = match resp.json().await {
+            Ok(v) => v,
+            Err(e) => {
+                warn!(%e, "rpc fallback: failed to parse response");
+                return None;
+            }
+        };
+
+        let slot = result
+            .pointer("/result/value/0/slot")
+            .and_then(|v| v.as_u64());
+
+        if slot.is_some() {
+            info!(signature, slot, "rpc fallback: transaction found on-chain");
+        } else {
+            debug!(signature, "rpc fallback: transaction not found");
+        }
+
+        slot
     }
 
     async fn await_commitments(
@@ -150,42 +178,5 @@ impl SignatureTracker {
             entry.record_finalized();
             debug!(signature = %entry.signature, slot = landed_slot, "reached finalized");
         }
-    }
-
-    fn landing_request(&self, signature: &str) -> SubscribeRequest {
-        let mut transactions = HashMap::with_capacity(1);
-        transactions.insert(
-            "sig".to_owned(),
-            SubscribeRequestFilterTransactions {
-                vote: Some(false),
-                failed: None,
-                signature: Some(signature.to_owned()),
-                account_include: Vec::new(),
-                account_exclude: Vec::new(),
-                account_required: Vec::new(),
-            },
-        );
-        SubscribeRequest {
-            transactions,
-            commitment: Some(CommitmentLevel::Processed as i32),
-            ..Default::default()
-        }
-    }
-
-    async fn connect(&self) -> Result<GeyserGrpcClient, Error> {
-        let mut builder = GeyserGrpcClient::build_from_shared(self.config.endpoint.clone())?
-            .x_token(self.config.x_token.clone())?
-            .connect_timeout(CONNECT_TIMEOUT)
-            .timeout(REQUEST_TIMEOUT)
-            .set_reconnect_config(ReconnectConfig::default().with_backoff(Backoff::new(
-                Duration::from_millis(500),
-                2.0,
-                10,
-            )));
-
-        if self.config.endpoint.starts_with("https") {
-            builder = builder.tls_config(ClientTlsConfig::new().with_native_roots())?;
-        }
-        Ok(builder.connect().await?)
     }
 }

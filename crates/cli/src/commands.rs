@@ -188,7 +188,7 @@ pub fn logs(dir: &str) -> Result<()> {
 }
 
 pub async fn status(config: Config, bundle_id: &str) -> Result<()> {
-    let submitter = BundleSubmitter::new(&config.block_engine);
+    let submitter = BundleSubmitter::new(&config.block_engine, config.jito_uuid.clone());
     let status = submitter
         .status(bundle_id)
         .await

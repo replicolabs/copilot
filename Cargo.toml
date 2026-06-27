@@ -16,7 +16,7 @@ version = "0.1.0"
 edition = "2024"
 rust-version = "1.96"
 license = "MIT"
-authors = ["Dav <dav@asklemma.xyz>"]
+authors = ["Dav <davidjrn247@gmail.com>"]
 repository = "https://github.com/replicolabs/copilot"
 homepage = "https://copilot.asklemma.xyz"
 
@@ -42,6 +42,7 @@ solana-pubkey = "4.1"
 solana-hash = "4.2"
 solana-rpc-client = "4"
 solana-rpc-client-api = "4"
+solana-commitment-config = { version = "3", features = ["serde"] }
 solana-signature = "3"
 solana-keypair = "3"
 solana-signer = "3"

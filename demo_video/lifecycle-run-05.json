@@ -1,0 +1,12 @@
+{
+  "bundle_id": "5923c2eae71dd632b1bad6befa6ea55700f086a932a702472150e57e9f16437c",
+  "signature": "2RWyvuUNB7Bit3XNw2hyQen3mtieDr72Jh8KVecaTHVhzaCu6rJgGADbdpQyb1z2ioqSx6DzS4CQdWd2RBpY6u7",
+  "tip_lamports": 10000,
+  "submitted_at": 1782184627361,
+  "submitted_slot": 428292059,
+  "landed_slot": 428292062,
+  "processed_at": 1782184627709,
+  "confirmed_at": 1782184627709,
+  "finalized_at": 1782184639897,
+  "failure": null
+}

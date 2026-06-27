@@ -103,20 +103,33 @@ mkdir -p "$CONFIG_DIR"
 
 write_env() {
   cat > "$ENV_FILE" <<ENVEOF
-# Copilot configuration — loaded automatically by the copilot binary.
-# Edit anytime: ${EDITOR:-nano} $ENV_FILE
+# Copilot configuration -> loaded automatically by the copilot binary.
+# Edit anytime -> eg. nano $ENV_FILE
 
-# Required: JSON-RPC endpoint (tip oracle + leader schedule).
+# JSON-RPC endpoint (tip oracle + leader schedule).
 COPILOT_RPC_URL=$1
-# Required: Yellowstone gRPC endpoint (live feed + lifecycle tracking).
+
+# yellowstone gRPC endpoint (live feed + lifecycle tracking).
 COPILOT_GRPC_URL=$2
-# Optional: x-token, if your gRPC provider requires one.
+
+# x-token, if your gRPC provider requires one.
 COPILOT_GRPC_X_TOKEN=$3
+
 # Payer keypair: a path to a keypair file, or an inline base58 secret.
 COPILOT_KEYPAIR=$4
 
-# Public defaults — usually no need to change these.
+# Public default
 COPILOT_BLOCK_ENGINE=https://mainnet.block-engine.jito.wtf/api/v1
+
+# Jito auth UUID
+COPILOT_JITO_UUID=$5
+
+# For running Copilot's autonomous retries
+ANTHROPIC_API_KEY=$6
+
+# Helius API key (simulateBundle diagnostics, sendBundle requires Helius business plan).
+COPILOT_HELIUS_API_KEY=
+
 # COPILOT_MODEL=claude-sonnet-4-6
 # COPILOT_LOG=info
 ENVEOF
@@ -173,12 +186,26 @@ if [ "$RECONFIGURE" = true ] && [ -r /dev/tty ]; then
       KEYPAIR=$(ask "Path to keypair file (or paste a base58 secret):")
       ;;
     *)
-      : 
+      :
       ;;
   esac
   if [ -z "$KEYPAIR" ]; then MISSING="$MISSING COPILOT_KEYPAIR"; fi
 
-  write_env "$RPC" "$GRPC" "$XTOKEN" "$KEYPAIR"
+  printf "\n    ${BOLD}Jito auth UUID${RESET} — required for bundles to actually land.\n" > /dev/tty
+  printf "    Without it, every bundle comes back \"Invalid\" from the Block Engine.\n" > /dev/tty
+  printf "    To get one: open a ticket on the Jito Discord, choose\n" > /dev/tty
+  printf "    \"Block Engine Rate Limit or Shredstream\" → \"New JSON-RPC UUID User\"\n" > /dev/tty
+  printf "    and follow the instructions. Paste the UUID below, or Enter to skip.\n\n" > /dev/tty
+  JITO_UUID=$(ask "Jito UUID         (COPILOT_JITO_UUID, optional):")
+  if [ -z "$JITO_UUID" ]; then MISSING="$MISSING COPILOT_JITO_UUID"; fi
+
+  printf "\n    ${BOLD}Anthropic API key${RESET} — powers Copilot's autonomous retry agent.\n" > /dev/tty
+  printf "    Get one at console.anthropic.com → API Keys → Create Key.\n" > /dev/tty
+  printf "    Press Enter to skip (the agent won't run without it).\n\n" > /dev/tty
+  ANTHROPIC_KEY=$(ask "Anthropic API key (ANTHROPIC_API_KEY, optional):")
+  if [ -z "$ANTHROPIC_KEY" ]; then MISSING="$MISSING ANTHROPIC_API_KEY"; fi
+
+  write_env "$RPC" "$GRPC" "$XTOKEN" "$KEYPAIR" "$JITO_UUID" "$ANTHROPIC_KEY"
   ok "Saved configuration to $ENV_FILE"
   if [ -n "$MISSING" ]; then
     printf "    ${YELLOW}!${RESET} Left blank:%s\n" "$MISSING" > /dev/tty
@@ -186,7 +213,7 @@ if [ "$RECONFIGURE" = true ] && [ -r /dev/tty ]; then
   fi
 elif [ "$RECONFIGURE" = true ]; then
   if [ ! -f "$ENV_FILE" ]; then
-    write_env "" "" "" ""
+    write_env "" "" "" "" "" ""
     ok "Wrote a config template to $ENV_FILE"
   fi
   warn "No terminal detected — edit $ENV_FILE to set your endpoints and keypair"

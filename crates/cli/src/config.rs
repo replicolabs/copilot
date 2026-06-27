@@ -13,16 +13,18 @@ pub struct Config {
     pub grpc_url: String,
     pub grpc_x_token: Option<String>,
     pub block_engine: String,
+    pub jito_uuid: Option<String>,
     pub model: Option<String>,
 }
 
 impl Config {
     pub fn from_env() -> Result<Self> {
         let rpc_url = require("COPILOT_RPC_URL")?;
-        let grpc_url = require("COPILOT_GRPC_URL")?;
+        let grpc_url = normalize_grpc_url(require("COPILOT_GRPC_URL")?);
         let grpc_x_token = optional("COPILOT_GRPC_X_TOKEN");
         let block_engine =
             optional("COPILOT_BLOCK_ENGINE").unwrap_or_else(|| MAINNET_BLOCK_ENGINE.to_owned());
+        let jito_uuid = optional("COPILOT_JITO_UUID");
         let model = optional("COPILOT_MODEL");
 
         Ok(Self {
@@ -30,6 +32,7 @@ impl Config {
             grpc_url,
             grpc_x_token,
             block_engine,
+            jito_uuid,
             model,
         })
     }
@@ -51,6 +54,16 @@ pub fn load_keypair() -> Result<Keypair> {
             .map_err(|_| anyhow!("keypair file at {source} is not a valid 64-byte ed25519 keypair"))
     } else {
         Ok(Keypair::from_base58_string(&source))
+    }
+}
+
+fn normalize_grpc_url(url: String) -> String {
+    if url.contains("://") {
+        url
+    } else if url.ends_with(":443") {
+        format!("https://{url}")
+    } else {
+        format!("http://{url}")
     }
 }
 

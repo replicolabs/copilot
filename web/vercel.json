@@ -3,20 +3,25 @@
     {
       "source": "/install.sh",
       "destination": "https://raw.githubusercontent.com/replicolabs/copilot/main/install.sh"
+    },
+    {
+      "source": "/docs",
+      "destination": "/docs.pdf"
     }
   ],
   "headers": [
     {
       "source": "/install.sh",
       "headers": [
-        {
-          "key": "Content-Type",
-          "value": "text/plain; charset=utf-8"
-        },
-        {
-          "key": "Cache-Control",
-          "value": "no-cache, no-store, must-revalidate"
-        }
+        { "key": "Content-Type", "value": "text/plain; charset=utf-8" },
+        { "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate" }
+      ]
+    },
+    {
+      "source": "/docs.pdf",
+      "headers": [
+        { "key": "Content-Type", "value": "application/pdf" },
+        { "key": "Content-Disposition", "value": "inline" }
       ]
     }
   ]

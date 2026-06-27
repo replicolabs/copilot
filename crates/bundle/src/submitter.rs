@@ -1,5 +1,6 @@
 use jito_sdk_rust::JitoJsonRpcSDK;
-use serde_json::Value;
+use reqwest::Client;
+use serde_json::{Value, json};
 use solana_transaction::versioned::VersionedTransaction;
 
 use crate::{Error, builder::encode_transaction, status::BundleStatus, tip_accounts::TipAccounts};
@@ -9,12 +10,26 @@ pub const MAX_BUNDLE_TXNS: usize = 5;
 
 pub struct BundleSubmitter {
     sdk: JitoJsonRpcSDK,
+    client: Client,
+    base_url: String,
+    uuid: Option<String>,
 }
 
 impl BundleSubmitter {
-    pub fn new(base_url: &str) -> Self {
+    pub fn new(base_url: &str, uuid: Option<String>) -> Self {
+        if uuid.is_none() {
+            tracing::warn!(
+                "COPILOT_JITO_UUID not set — bundles will be marked Invalid by the block engine; \
+                 please get a UUID"
+            );
+        } else {
+            tracing::info!("bundle submitter ready (authenticated)");
+        }
         Self {
             sdk: JitoJsonRpcSDK::new(base_url, None),
+            client: Client::new(),
+            base_url: base_url.to_string(),
+            uuid,
         }
     }
 
@@ -37,10 +52,28 @@ impl BundleSubmitter {
             .map(|tx| encode_transaction(tx).map(Value::String))
             .collect::<Result<_, _>>()?;
 
-        let response = self
-            .sdk
-            .send_bundle(Some(Value::Array(encoded)), None)
-            .await?;
+        let body = json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "sendBundle",
+            "params": [encoded, {"encoding": "base64"}]
+        });
+
+        let mut req = self
+            .client
+            .post(format!("{}/bundles", self.base_url))
+            .header("Content-Type", "application/json");
+        if let Some(uuid) = &self.uuid {
+            req = req.header("x-jito-auth", uuid);
+        }
+        let response: Value = req
+            .json(&body)
+            .send()
+            .await
+            .map_err(anyhow::Error::from)?
+            .json()
+            .await
+            .map_err(anyhow::Error::from)?;
 
         response
             .get("result")
